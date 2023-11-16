@@ -5,7 +5,12 @@
 
 #define NUMELEMENTS 1024
 
-__global__ void computeAccelerationMatrix(vector3* accels, vector3* hPos, double* mass) {
+// Global device pointers
+extern vector3 *d_hVel;
+extern vector3 *d_hPos;
+extern double *d_mass;
+
+__global__ void computeAccelerationMatrix(vector3* accels) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
     int k;
@@ -15,11 +20,11 @@ __global__ void computeAccelerationMatrix(vector3* accels, vector3* hPos, double
             vector3 distance;
             // Compute distance vector
             for (k = 0; k < 3; k++) 
-                distance[k] = hPos[j][k] - hPos[i][k];
+                distance[k] = d_hPos[j][k] - d_hPos[i][k];
 
             double magnitude_sq = distance[0] * distance[0] + distance[1] * distance[1] + distance[2] * distance[2];
             double magnitude = sqrt(magnitude_sq);
-            double accelmag = GRAV_CONSTANT * mass[j] / magnitude_sq;
+            double accelmag = GRAV_CONSTANT * d_mass[j] / magnitude_sq;
 
             // Compute acceleration vector
             for (k = 0; k < 3; k++) 
@@ -31,7 +36,7 @@ __global__ void computeAccelerationMatrix(vector3* accels, vector3* hPos, double
     }
 }
 
-__global__ void updateVelocityPosition(vector3* accels, vector3* hPos, vector3* hVel) {
+__global__ void updateVelocityPosition(vector3* accels) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
 
     if (i < NUMELEMENTS) {
@@ -46,42 +51,26 @@ __global__ void updateVelocityPosition(vector3* accels, vector3* hPos, vector3* 
         // Update velocity and position
 		int k;
         for (k = 0; k < 3; k++) {
-            hVel[i][k] += totalAccel[k] * INTERVAL;
-            hPos[i][k] += hVel[i][k] * INTERVAL;
+            d_hVel[i][k] += totalAccel[k] * INTERVAL;
+            d_hPos[i][k] += d_hVel[i][k] * INTERVAL;
         }
     }
 }
 
-void compute(vector3* hPos, vector3* hVel, double* mass) {
-    vector3 *d_hPos, *d_hVel, *d_accels;
-    double *d_mass;
+void compute() {
+    vector3 *d_accels;
 
-    // Allocating memory on GPU
-    cudaMalloc((void **)&d_hPos, sizeof(vector3) * NUMELEMENTS);
-    cudaMalloc((void **)&d_hVel, sizeof(vector3) * NUMELEMENTS);
-    cudaMalloc((void **)&d_mass, sizeof(double) * NUMELEMENTS);
+    // Allocate memory for acceleration matrix
     cudaMalloc((void **)&d_accels, sizeof(vector3) * NUMELEMENTS * NUMELEMENTS);
-
-    // Copying data from host to device
-    cudaMemcpy(d_hPos, hPos, sizeof(vector3) * NUMELEMENTS, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_hVel, hVel, sizeof(vector3) * NUMELEMENTS, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_mass, mass, sizeof(double) * NUMELEMENTS, cudaMemcpyHostToDevice);
 
     // Configuring kernel execution parameters
     dim3 dimBlock(16, 16);
     dim3 dimGrid((NUMELEMENTS + dimBlock.x - 1) / dimBlock.x, (NUMELEMENTS + dimBlock.y - 1) / dimBlock.y);
 
     // Launching kernels
-    computeAccelerationMatrix<<<dimGrid, dimBlock>>>(d_accels, d_hPos, d_mass);
-    updateVelocityPosition<<<(NUMELEMENTS + 255) / 256, 256>>>(d_accels, d_hPos, d_hVel);
+    computeAccelerationMatrix<<<dimGrid, dimBlock>>>(d_accels);
+    updateVelocityPosition<<<(NUMELEMENTS + 255) / 256, 256>>>(d_accels);
 
-    // Copying updated data back to host
-    cudaMemcpy(hPos, d_hPos, sizeof(vector3) * NUMELEMENTS, cudaMemcpyDeviceToHost);
-    cudaMemcpy(hVel, d_hVel, sizeof(vector3) * NUMELEMENTS, cudaMemcpyDeviceToHost);
-
-    // Freeing allocated memory on GPU
-    cudaFree(d_hPos);
-    cudaFree(d_hVel);
-    cudaFree(d_mass);
+    // Freeing allocated memory for acceleration matrix
     cudaFree(d_accels);
 }
