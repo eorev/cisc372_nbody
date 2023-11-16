@@ -10,7 +10,7 @@ extern vector3 *d_hVel;
 extern vector3 *d_hPos;
 extern double *d_mass;
 
-__global__ void computeAccelerationMatrix(vector3* accels) {
+__global__ void computeAccelerationMatrix(vector3* accels, vector3* d_hPos, double* d_mass) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
     int k;
@@ -36,7 +36,7 @@ __global__ void computeAccelerationMatrix(vector3* accels) {
     }
 }
 
-__global__ void updateVelocityPosition(vector3* accels) {
+__global__ void updateVelocityPosition(vector3* accels, vector3* d_hPos, vector3* d_hVel) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
 
     if (i < NUMELEMENTS) {
@@ -57,7 +57,7 @@ __global__ void updateVelocityPosition(vector3* accels) {
     }
 }
 
-void compute() {
+void compute(vector3* d_hPos, vector3* d_hVel, double* d_mass) {
     vector3 *d_accels;
 
     // Allocate memory for acceleration matrix
