@@ -5,6 +5,10 @@
 
 #define NUMELEMENTS 1024
 
+extern vector3 *d_hVel;
+extern vector3 *d_hPos;
+extern double *d_mass;
+
 // Global device pointers
 extern vector3 *d_hVel;
 extern vector3 *d_hPos;
