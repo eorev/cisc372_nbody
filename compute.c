@@ -1,6 +1,9 @@
 #include <cuda_runtime.h>
 #include "vector.h"
 #include "config.h"
+#include <math.h>
+
+#define NUMELEMENTS 1024
 
 __global__ void computeAccelerationMatrix(vector3* accels, vector3* hPos, double* mass) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -51,10 +54,10 @@ void compute(vector3* hPos, vector3* hVel, double* mass) {
     double *d_mass;
 
     // Allocating memory on GPU
-    cudaMalloc(&d_hPos, sizeof(vector3) * NUMELEMENTS);
-    cudaMalloc(&d_hVel, sizeof(vector3) * NUMELEMENTS);
-    cudaMalloc(&d_mass, sizeof(double) * NUMELEMENTS);
-    cudaMalloc(&d_accels, sizeof(vector3) * NUMELEMENTS * NUMELEMENTS);
+    cudaMalloc((void **)&d_hPos, sizeof(vector3) * NUMELEMENTS);
+    cudaMalloc((void **)&d_hVel, sizeof(vector3) * NUMELEMENTS);
+    cudaMalloc((void **)&d_mass, sizeof(double) * NUMELEMENTS);
+    cudaMalloc((void **)&d_accels, sizeof(vector3) * NUMELEMENTS * NUMELEMENTS);
 
     // Copying data from host to device
     cudaMemcpy(d_hPos, hPos, sizeof(vector3) * NUMELEMENTS, cudaMemcpyHostToDevice);
