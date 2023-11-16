@@ -8,12 +8,13 @@
 __global__ void computeAccelerationMatrix(vector3* accels, vector3* hPos, double* mass) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int k;
 
     if (i < NUMELEMENTS && j < NUMELEMENTS) {
         if (i != j) {
             vector3 distance;
             // Compute distance vector
-            for (int k = 0; k < 3; k++) 
+            for (k = 0; k < 3; k++) 
                 distance[k] = hPos[j][k] - hPos[i][k];
 
             double magnitude_sq = distance[0] * distance[0] + distance[1] * distance[1] + distance[2] * distance[2];
@@ -21,10 +22,10 @@ __global__ void computeAccelerationMatrix(vector3* accels, vector3* hPos, double
             double accelmag = GRAV_CONSTANT * mass[j] / magnitude_sq;
 
             // Compute acceleration vector
-            for (int k = 0; k < 3; k++) 
+            for (k = 0; k < 3; k++) 
                 accels[i * NUMELEMENTS + j][k] = accelmag * distance[k] / magnitude;
         } else {
-            for (int k = 0; k < 3; k++) 
+            for (k = 0; k < 3; k++) 
                 accels[i * NUMELEMENTS + j][k] = 0;
         }
     }
@@ -37,12 +38,14 @@ __global__ void updateVelocityPosition(vector3* accels, vector3* hPos, vector3* 
         vector3 totalAccel = {0, 0, 0};
         // Sum accelerations for object i
         for (int j = 0; j < NUMELEMENTS; j++) {
-            for (int k = 0; k < 3; k++) 
+			int k;
+            for (k = 0; k < 3; k++) 
                 totalAccel[k] += accels[i * NUMELEMENTS + j][k];
         }
 
         // Update velocity and position
-        for (int k = 0; k < 3; k++) {
+		int k;
+        for (k = 0; k < 3; k++) {
             hVel[i][k] += totalAccel[k] * INTERVAL;
             hPos[i][k] += hVel[i][k] * INTERVAL;
         }
