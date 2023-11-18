@@ -60,9 +60,10 @@ __global__ void updateVelocityPosition(vector3 *accels, vector3 *d_hPos,
 
   if (i < NUMELEMENTS) {
     vector3 totalAccel = {0, 0, 0};
-    int j, k;
+    int j;
     // Sum accelerations for object i
     for (j = 0; j < NUMELEMENTS; j++) {
+      int k;
       #pragma unroll // trying out using a pragma function to increase speed
       for (k = 0; k < 3; k++)
         totalAccel[k] += accels[i * NUMELEMENTS + j][k];
