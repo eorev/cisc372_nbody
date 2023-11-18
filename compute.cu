@@ -14,11 +14,14 @@ __global__ void computeAccelerationMatrix(vector3 *accels, vector3 *d_hPos,
   __shared__ vector3 sharedPos[BLOCK_SIZE][BLOCK_SIZE];
   __shared__ double sharedMass[BLOCK_SIZE];
 
-  // Load a block of d_hPos and d_mass into shared memory
-  if (threadIdx.y == 0 && j < NUMELEMENTS) {
+  // Ensure threadIdx.x is within bounds for sharedMass
+  if (threadIdx.y == 0 && threadIdx.x < BLOCK_SIZE && j < NUMELEMENTS) {
     sharedMass[threadIdx.x] = d_mass[j];
   }
-  if (i < NUMELEMENTS && j < NUMELEMENTS) {
+
+  // Ensure both threadIdx.x and threadIdx.y are within bounds for sharedPos
+  if (i < NUMELEMENTS && j < NUMELEMENTS && threadIdx.x < BLOCK_SIZE &&
+      threadIdx.y < BLOCK_SIZE) {
     sharedPos[threadIdx.y][threadIdx.x] = d_hPos[j];
   }
   __syncthreads();
