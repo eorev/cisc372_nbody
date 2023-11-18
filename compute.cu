@@ -29,18 +29,23 @@ __global__ void computeAccelerationMatrix(vector3 *accels, vector3 *d_hPos,
 
   if (i < NUMELEMENTS && j < NUMELEMENTS && i != j) {
     vector3 distance;
-    for (int k = 0; k < 3; k++) {
-      distance[k] = sharedPos[threadIdx.y][threadIdx.x][k] - d_hPos[i][k];
-    }
+    if (i < j) { // Calculate only for i < j
+      for (int k = 0; k < 3; k++) {
+        distance[k] = sharedPos[threadIdx.y][threadIdx.x][k] - d_hPos[i][k];
+      }
 
-    double magnitude_sq = distance[0] * distance[0] +
-                          distance[1] * distance[1] + distance[2] * distance[2];
-    double magnitude = sqrt(magnitude_sq);
-    double accelmag = GRAV_CONSTANT * sharedMass[threadIdx.x] / magnitude_sq;
+      double magnitude_sq = distance[0] * distance[0] +
+                            distance[1] * distance[1] +
+                            distance[2] * distance[2];
+      double magnitude = sqrt(magnitude_sq);
+      double accelmag = GRAV_CONSTANT * sharedMass[threadIdx.x] / magnitude_sq;
 
-    // Compute acceleration vector
-    for (int k = 0; k < 3; k++) {
-      accels[i * NUMELEMENTS + j][k] = accelmag * distance[k] / magnitude;
+      // Compute acceleration vector
+      for (int k = 0; k < 3; k++) {
+        double accelComponent = accelmag * distance[k] / magnitude;
+        accels[i * NUMELEMENTS + j][k] = accelComponent;
+        accels[j * NUMELEMENTS + i][k] = -accelComponent; // Use symmetry
+      }
     }
   } else if (i < NUMELEMENTS) {
     for (int k = 0; k < 3; k++) {
