@@ -44,7 +44,7 @@ __global__ void computeAccelerationMatrix(vector3 *accels, vector3 *d_hPos,
       for (int k = 0; k < 3; k++) {
         double accelComponent = accelmag * distance[k] / magnitude;
         accels[i * NUMELEMENTS + j][k] = accelComponent;
-        accels[j * NUMELEMENTS + i][k] = -accelComponent; // Use symmetry
+        accels[j * NUMELEMENTS + i][k] = -accelComponent; // Using symmetry instead of recomputation
       }
     }
   } else if (i < NUMELEMENTS) {
@@ -60,9 +60,10 @@ __global__ void updateVelocityPosition(vector3 *accels, vector3 *d_hPos,
 
   if (i < NUMELEMENTS) {
     vector3 totalAccel = {0, 0, 0};
+    int j, k;
     // Sum accelerations for object i
-    for (int j = 0; j < NUMELEMENTS; j++) {
-      int k;
+    for (j = 0; j < NUMELEMENTS; j++) {
+      #pragma unroll // trying out using a pragma function to increase speed
       for (k = 0; k < 3; k++)
         totalAccel[k] += accels[i * NUMELEMENTS + j][k];
     }
