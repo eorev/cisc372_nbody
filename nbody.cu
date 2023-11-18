@@ -1,7 +1,7 @@
-#include "compute.h"
 #include "config.h"
 #include "planets.h"
 #include "vector.h"
+#include "compute.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>

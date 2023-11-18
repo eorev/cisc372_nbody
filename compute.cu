@@ -5,10 +5,6 @@
 
 #define NUMELEMENTS 1024
 
-extern vector3 *d_hVel;
-extern vector3 *d_hPos;
-extern double *d_mass;
-
 __global__ void computeAccelerationMatrix(vector3 *accels, vector3 *d_hPos,
                                           double *d_mass) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
