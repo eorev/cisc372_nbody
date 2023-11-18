@@ -14,34 +14,38 @@ __global__ void computeAccelerationMatrix(vector3 *accels, vector3 *d_hPos,
   __shared__ vector3 sharedPos[BLOCK_SIZE][BLOCK_SIZE];
   __shared__ double sharedMass[BLOCK_SIZE];
 
-  // Ensure threadIdx.x is within bounds for sharedMass
+  // Load a block of d_hPos and d_mass into shared memory
   if (threadIdx.y == 0 && threadIdx.x < BLOCK_SIZE && j < NUMELEMENTS) {
     sharedMass[threadIdx.x] = d_mass[j];
   }
 
-  // Ensure both threadIdx.x and threadIdx.y are within bounds for sharedPos
   if (i < NUMELEMENTS && j < NUMELEMENTS && threadIdx.x < BLOCK_SIZE &&
       threadIdx.y < BLOCK_SIZE) {
-    sharedPos[threadIdx.y][threadIdx.x] = d_hPos[j];
+    for (int k = 0; k < 3; k++) {
+      sharedPos[threadIdx.y][threadIdx.x][k] = d_hPos[j][k];
+    }
   }
   __syncthreads();
 
   if (i < NUMELEMENTS && j < NUMELEMENTS && i != j) {
     vector3 distance;
-    // Compute distance vector using shared memory
-    for (int k = 0; k < 3; k++)
+    for (int k = 0; k < 3; k++) {
       distance[k] = sharedPos[threadIdx.y][threadIdx.x][k] - d_hPos[i][k];
+    }
 
-    double magnitude_sq = ...; // your existing code here
+    double magnitude_sq = distance[0] * distance[0] +
+                          distance[1] * distance[1] + distance[2] * distance[2];
     double magnitude = sqrt(magnitude_sq);
     double accelmag = GRAV_CONSTANT * sharedMass[threadIdx.x] / magnitude_sq;
 
     // Compute acceleration vector
-    for (int k = 0; k < 3; k++)
+    for (int k = 0; k < 3; k++) {
       accels[i * NUMELEMENTS + j][k] = accelmag * distance[k] / magnitude;
+    }
   } else if (i < NUMELEMENTS) {
-    for (int k = 0; k < 3; k++)
+    for (int k = 0; k < 3; k++) {
       accels[i * NUMELEMENTS + j][k] = 0;
+    }
   }
 }
 
