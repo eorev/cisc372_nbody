@@ -4,33 +4,41 @@
 #include <math.h>
 
 #define NUMELEMENTS 1024
+#define BLOCK_SIZE 16
 
 __global__ void computeAccelerationMatrix(vector3 *accels, vector3 *d_hPos,
                                           double *d_mass) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   int j = blockIdx.y * blockDim.y + threadIdx.y;
-  int k;
 
+  __shared__ vector3 sharedPos[BLOCK_SIZE][BLOCK_SIZE];
+  __shared__ double sharedMass[BLOCK_SIZE];
+
+  // Load a block of d_hPos and d_mass into shared memory
+  if (threadIdx.y == 0 && j < NUMELEMENTS) {
+    sharedMass[threadIdx.x] = d_mass[j];
+  }
   if (i < NUMELEMENTS && j < NUMELEMENTS) {
-    if (i != j) {
-      vector3 distance;
-      // Compute distance vector
-      for (k = 0; k < 3; k++)
-        distance[k] = d_hPos[j][k] - d_hPos[i][k];
+    sharedPos[threadIdx.y][threadIdx.x] = d_hPos[j];
+  }
+  __syncthreads();
 
-      double magnitude_sq = distance[0] * distance[0] +
-                            distance[1] * distance[1] +
-                            distance[2] * distance[2];
-      double magnitude = sqrt(magnitude_sq);
-      double accelmag = GRAV_CONSTANT * d_mass[j] / magnitude_sq;
+  if (i < NUMELEMENTS && j < NUMELEMENTS && i != j) {
+    vector3 distance;
+    // Compute distance vector using shared memory
+    for (int k = 0; k < 3; k++)
+      distance[k] = sharedPos[threadIdx.y][threadIdx.x][k] - d_hPos[i][k];
 
-      // Compute acceleration vector
-      for (k = 0; k < 3; k++)
-        accels[i * NUMELEMENTS + j][k] = accelmag * distance[k] / magnitude;
-    } else {
-      for (k = 0; k < 3; k++)
-        accels[i * NUMELEMENTS + j][k] = 0;
-    }
+    double magnitude_sq = ...; // your existing code here
+    double magnitude = sqrt(magnitude_sq);
+    double accelmag = GRAV_CONSTANT * sharedMass[threadIdx.x] / magnitude_sq;
+
+    // Compute acceleration vector
+    for (int k = 0; k < 3; k++)
+      accels[i * NUMELEMENTS + j][k] = accelmag * distance[k] / magnitude;
+  } else if (i < NUMELEMENTS) {
+    for (int k = 0; k < 3; k++)
+      accels[i * NUMELEMENTS + j][k] = 0;
   }
 }
 
