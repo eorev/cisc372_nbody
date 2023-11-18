@@ -9,11 +9,6 @@ extern vector3 *d_hVel;
 extern vector3 *d_hPos;
 extern double *d_mass;
 
-// Global device pointers
-extern vector3 *d_hVel;
-extern vector3 *d_hPos;
-extern double *d_mass;
-
 __global__ void computeAccelerationMatrix(vector3 *accels, vector3 *d_hPos,
                                           double *d_mass) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -67,19 +62,15 @@ __global__ void updateVelocityPosition(vector3 *accels, vector3 *d_hPos,
 
 void compute(vector3 *d_hPos, vector3 *d_hVel, double *d_mass) {
   vector3 *d_accels;
-
-  // Allocate memory for acceleration matrix
   cudaMalloc((void **)&d_accels, sizeof(vector3) * NUMELEMENTS * NUMELEMENTS);
 
-  // Configuring kernel execution parameters
   dim3 dimBlock(16, 16);
   dim3 dimGrid((NUMELEMENTS + dimBlock.x - 1) / dimBlock.x,
                (NUMELEMENTS + dimBlock.y - 1) / dimBlock.y);
 
-  // Launching kernels
-  computeAccelerationMatrix<<<dimGrid, dimBlock>>>(d_accels);
-  updateVelocityPosition<<<(NUMELEMENTS + 255) / 256, 256>>>(d_accels);
+  computeAccelerationMatrix<<<dimGrid, dimBlock>>>(d_accels, d_hPos, d_mass);
+  updateVelocityPosition<<<(NUMELEMENTS + 255) / 256, 256>>>(d_accels, d_hPos,
+                                                             d_hVel);
 
-  // Freeing allocated memory for acceleration matrix
   cudaFree(d_accels);
 }
