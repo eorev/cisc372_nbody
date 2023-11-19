@@ -40,6 +40,7 @@ __global__ void computeAccelerationMatrix(vector3 *accels, vector3 *d_hPos,
 
     for (int k = 0; k < 3; k++) {
       double accelComponent = accelmag * distance[k] / magnitude;
+      accels[i * NUMELEMENTS + j][k] += accelComponent;
     }
   }
 }
