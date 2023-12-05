@@ -10,7 +10,7 @@
 // represents the objects in the system.  Global variables
 vector3 *hVel, *d_hVel;
 vector3 *hPos, *d_hPos;
-double *mass, *d_mass;
+double *mass;
 
 // initHostMemory: Create storage for numObjects entities in our system
 // Parameters: numObjects: number of objects to allocate
@@ -20,18 +20,6 @@ void initHostMemory(int numObjects) {
   hVel = (vector3 *)malloc(sizeof(vector3) * numObjects);
   hPos = (vector3 *)malloc(sizeof(vector3) * numObjects);
   mass = (double *)malloc(sizeof(double) * numObjects);
-
-  // Allocate memory on the device
-  cudaMalloc(&d_hVel, sizeof(vector3) * numObjects);
-  cudaMalloc(&d_hPos, sizeof(vector3) * numObjects);
-  cudaMalloc(&d_mass, sizeof(double) * numObjects);
-
-  // Copy initialized data to the device
-  cudaMemcpy(d_hPos, hPos, sizeof(vector3) * numObjects,
-             cudaMemcpyHostToDevice);
-  cudaMemcpy(d_hVel, hVel, sizeof(vector3) * numObjects,
-             cudaMemcpyHostToDevice);
-  cudaMemcpy(d_mass, mass, sizeof(double) * numObjects, cudaMemcpyHostToDevice);
 }
 
 // freeHostMemory: Free storage allocated by a previous call to initHostMemory
@@ -43,17 +31,12 @@ void freeHostMemory() {
   free(hVel);
   free(hPos);
   free(mass);
-
-  // Free device memory
-  cudaFree(d_hVel);
-  cudaFree(d_hPos);
-  cudaFree(d_mass);
 }
 
 // planetFill: Fill the first NUMPLANETS+1 entries of the entity arrays with an
-// estimation 				of our solar system (Sun+NUMPLANETS)
-// Parameters: None Returns: None Fills the first 8 entries of our system with
-// an estimation of the sun plus our 8 planets.
+// estimation 				of our solar system (Sun+NUMPLANETS) Parameters: None Returns:
+// None Fills the first 8 entries of our system with an estimation of the sun
+// plus our 8 planets.
 void planetFill() {
   int i, j;
   double data[][7] = {SUN,     MERCURY, VENUS,  EARTH,  MARS,
@@ -69,9 +52,8 @@ void planetFill() {
 
 // randomFill: FIll the rest of the objects in the system randomly starting at
 // some entry in the list Parameters: 	start: The index of the first open entry
-// in our system (after planetFill). 				count: The
-// number of random objects to put
-// into our system Returns: None Side Effects: Fills count entries in our system
+// in our system (after planetFill). 				count: The number of random objects to put
+//into our system Returns: None Side Effects: Fills count entries in our system
 // starting at index start (0 based)
 void randomFill(int start, int count) {
   int i, j = start;
@@ -116,7 +98,7 @@ int main(int argc, char **argv) {
   printSystem(stdout);
 #endif
   for (t_now = 0; t_now < DURATION; t_now += INTERVAL) {
-    compute(d_hPos, d_hVel, d_mass);
+    compute();
   }
   clock_t t1 = clock() - t0;
 #ifdef DEBUG
