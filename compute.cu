@@ -14,7 +14,6 @@ __global__ void computeAccelerationMatrix(vector3 *accels, vector3 *d_hPos,
   __shared__ vector3 sharedPos[BLOCK_SIZE][BLOCK_SIZE];
   __shared__ double sharedMass[BLOCK_SIZE];
 
-  // Load a block of d_hPos and d_mass into shared memory
   if (threadIdx.y == 0 && threadIdx.x < BLOCK_SIZE && j < NUMELEMENTS) {
     sharedMass[threadIdx.x] = d_mass[j];
   }
@@ -29,22 +28,20 @@ __global__ void computeAccelerationMatrix(vector3 *accels, vector3 *d_hPos,
 
   if (i < NUMELEMENTS && j < NUMELEMENTS && i != j) {
     vector3 distance;
+    double magnitude_sq, magnitude, accelmag;
     if (i < j) { // Calculate only for i < j
       for (int k = 0; k < 3; k++) {
         distance[k] = sharedPos[threadIdx.y][threadIdx.x][k] - d_hPos[i][k];
       }
+      magnitude_sq = distance[0] * distance[0] + distance[1] * distance[1] +
+                     distance[2] * distance[2];
+      magnitude = sqrt(magnitude_sq);
+      accelmag = GRAV_CONSTANT * sharedMass[threadIdx.x] / magnitude_sq;
 
-      double magnitude_sq = distance[0] * distance[0] +
-                            distance[1] * distance[1] +
-                            distance[2] * distance[2];
-      double magnitude = sqrt(magnitude_sq);
-      double accelmag = GRAV_CONSTANT * sharedMass[threadIdx.x] / magnitude_sq;
-
-      // Compute acceleration vector
       for (int k = 0; k < 3; k++) {
         double accelComponent = accelmag * distance[k] / magnitude;
         accels[i * NUMELEMENTS + j][k] = accelComponent;
-        accels[j * NUMELEMENTS + i][k] = -accelComponent; // Using symmetry instead of recomputation
+        accels[j * NUMELEMENTS + i][k] = -accelComponent; // Symmetry
       }
     }
   } else if (i < NUMELEMENTS) {
@@ -60,18 +57,15 @@ __global__ void updateVelocityPosition(vector3 *accels, vector3 *d_hPos,
 
   if (i < NUMELEMENTS) {
     vector3 totalAccel = {0, 0, 0};
-    int j;
-    // Sum accelerations for object i
-    for (j = 0; j < NUMELEMENTS; j++) {
-      int k;
-      #pragma unroll // trying out using a pragma function to increase speed
-      for (k = 0; k < 3; k++)
+
+    for (int j = 0; j < NUMELEMENTS; j++) {
+#pragma unroll
+      for (int k = 0; k < 3; k++) {
         totalAccel[k] += accels[i * NUMELEMENTS + j][k];
+      }
     }
 
-    // Update velocity and position
-    int k;
-    for (k = 0; k < 3; k++) {
+    for (int k = 0; k < 3; k++) {
       d_hVel[i][k] += totalAccel[k] * INTERVAL;
       d_hPos[i][k] += d_hVel[i][k] * INTERVAL;
     }
