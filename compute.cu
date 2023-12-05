@@ -6,6 +6,30 @@
 #define NUMELEMENTS 1024
 #define BLOCK_SIZE 16
 
+// Function to create a vector3
+__device__ vector3 make_vector3(double x, double y, double z) {
+  vector3 v;
+  v.x = x;
+  v.y = y;
+  v.z = z;
+  return v;
+}
+
+// Function to compute dot product
+__device__ double dot_product(vector3 a, vector3 b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+// Function to multiply vector by a scalar
+__device__ vector3 scalar_mult(vector3 v, double scalar) {
+  return make_vector3(v.x * scalar, v.y * scalar, v.z * scalar);
+}
+
+// Function to add two vectors
+__device__ vector3 vector_add(vector3 a, vector3 b) {
+  return make_vector3(a.x + b.x, a.y + b.y, a.z + b.z);
+}
+
 __global__ void computeAccelerationMatrix(vector3 *accels, vector3 *d_hPos,
                                           double *d_mass) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
