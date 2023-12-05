@@ -7,10 +7,9 @@
 #include <stdlib.h>
 #include <time.h>
 
-// represents the objects in the system.  Global variables
-vector3 *hVel, *d_hVel;
-vector3 *hPos, *d_hPos;
-double *mass;
+// Global variables
+vector3 *hVel, *hPos, *d_hVel, *d_hPos;
+double *mass, *d_mass;
 
 // initHostMemory: Create storage for numObjects entities in our system
 // Parameters: numObjects: number of objects to allocate
@@ -89,23 +88,52 @@ void printSystem(FILE *handle) {
 int main(int argc, char **argv) {
   clock_t t0 = clock();
   int t_now;
-  // srand(time(NULL));
+
   srand(1234);
   initHostMemory(NUMENTITIES);
   planetFill();
   randomFill(NUMPLANETS + 1, NUMASTEROIDS);
-// now we have a system.
+
 #ifdef DEBUG
   printSystem(stdout);
 #endif
+
+  // Allocate memory on the GPU
+  cudaMalloc(&d_hVel, sizeof(vector3) * NUMENTITIES);
+  cudaMalloc(&d_hPos, sizeof(vector3) * NUMENTITIES);
+  cudaMalloc(&d_mass, sizeof(double) * NUMENTITIES);
+
+  // Copy data from host to device
+  cudaMemcpy(d_hVel, hVel, sizeof(vector3) * NUMENTITIES,
+             cudaMemcpyHostToDevice);
+  cudaMemcpy(d_hPos, hPos, sizeof(vector3) * NUMENTITIES,
+             cudaMemcpyHostToDevice);
+  cudaMemcpy(d_mass, mass, sizeof(double) * NUMENTITIES,
+             cudaMemcpyHostToDevice);
+
   for (t_now = 0; t_now < DURATION; t_now += INTERVAL) {
-    compute();
+    compute(d_hPos, d_hVel, d_mass);
   }
-  clock_t t1 = clock() - t0;
+
+  // Copy results back to host memory
+  cudaMemcpy(hVel, d_hVel, sizeof(vector3) * NUMENTITIES,
+             cudaMemcpyDeviceToHost);
+  cudaMemcpy(hPos, d_hPos, sizeof(vector3) * NUMENTITIES,
+             cudaMemcpyDeviceToHost);
+  cudaMemcpy(mass, d_mass, sizeof(double) * NUMENTITIES,
+             cudaMemcpyDeviceToHost);
+
 #ifdef DEBUG
   printSystem(stdout);
 #endif
-  printf("This took a total time of %f seconds\n", (double)t1 / CLOCKS_PER_SEC);
+
+  printf("This took a total time of %f seconds\n",
+         (double)(clock() - t0) / CLOCKS_PER_SEC);
+
+  // Free GPU memory
+  cudaFree(d_hVel);
+  cudaFree(d_hPos);
+  cudaFree(d_mass);
 
   freeHostMemory();
 }
