@@ -1,89 +1,110 @@
 #include "config.h"
+#include "cuda.h"
 #include "vector.h"
 #include <cuda_runtime.h>
 #include <math.h>
+#include <stdlib.h>
 
-#define NUMELEMENTS 1024
-#define BLOCK_SIZE 16
+// Arrays for intermediate calculations
+vector3 *intermediateValues;
+vector3 **accelerationComponents;
 
-// Function to compute dot product
-__device__ double dot_product(vector3 a, vector3 b) {
-  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
+// CUDA kernel for parallel computations
+__global__ void computeKernel(vector3 *interValues, vector3 **accelComps,
+                              vector3 *deviceVel, vector3 *devicePos,
+                              double *deviceMass) {
 
-// Function to multiply vector by a scalar and add to another vector
-__device__ void vector_add_scaled(vector3 a, vector3 b, double scalar,
-                                  vector3 result) {
-  result[0] = a[0] + b[0] * scalar;
-  result[1] = a[1] + b[1] * scalar;
-  result[2] = a[2] + b[2] * scalar;
-}
+  int threadIndex = blockIdx.x * blockDim.x + threadIdx.x;
+  int idxI =
+      threadIndex / NUMENTITIES; // Calculate i index based on current thread
+  int idxJ =
+      threadIndex % NUMENTITIES; // Calculate j index based on current thread
 
-__global__ void computeAccelerationMatrix(vector3 *d_hPos, double *d_mass,
-                                          vector3 *d_accels) {
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-  int j = blockIdx.y * blockDim.y + threadIdx.y;
+  accelComps[threadIndex] = &interValues[threadIndex * NUMENTITIES];
 
-  if (i < NUMELEMENTS && j < NUMELEMENTS) {
-    vector3 distance;
-    if (i != j) {
-      for (int k = 0; k < 3; k++) {
-        distance[k] = d_hPos[j][k] - d_hPos[i][k];
-      }
-      double magnitude_sq = dot_product(distance, distance);
-      double magnitude = sqrt(magnitude_sq);
-      double accelmag = -GRAV_CONSTANT * d_mass[j] / magnitude_sq;
-      for (int k = 0; k < 3; k++) {
-        d_accels[i * NUMELEMENTS + j][k] = distance[k] * accelmag / magnitude;
-      }
+  if (threadIndex <
+      NUMENTITIES * NUMENTITIES) { // Check if thread is within bounds
+    if (idxI == idxJ) {
+      FILL_VECTOR(accelComps[idxI][idxJ], 0, 0, 0);
     } else {
-      d_accels[i * NUMELEMENTS + j][0] = 0.0;
-      d_accels[i * NUMELEMENTS + j][1] = 0.0;
-      d_accels[i * NUMELEMENTS + j][2] = 0.0;
+      vector3 distVec;
+
+      // Calculate distance between two entities
+      distVec[0] = devicePos[idxI][0] - devicePos[idxJ][0];
+      distVec[1] = devicePos[idxI][1] - devicePos[idxJ][1];
+      distVec[2] = devicePos[idxI][2] - devicePos[idxJ][2];
+      double magSq = distVec[0] * distVec[0] + distVec[1] * distVec[1] +
+                     distVec[2] * distVec[2];
+      double magnitude = sqrt(magSq);
+      double accelMagnitude = -GRAV_CONSTANT * deviceMass[idxJ] / magSq;
+
+      // Calculate acceleration vector
+      FILL_VECTOR(accelComps[idxI][idxJ],
+                  accelMagnitude * distVec[0] / magnitude,
+                  accelMagnitude * distVec[1] / magnitude,
+                  accelMagnitude * distVec[2] / magnitude);
     }
+
+    // Sum accelerations for the current entity
+    vector3 totalAccel = {accelComps[threadIndex][0],
+                          accelComps[threadIndex][1],
+                          accelComps[threadIndex][2]};
+
+    // Update velocity and position based on total acceleration
+    deviceVel[idxI][0] += totalAccel[0] * INTERVAL;
+    devicePos[idxI][0] = deviceVel[idxI][0] * INTERVAL;
+
+    deviceVel[idxI][1] += totalAccel[1] * INTERVAL;
+    devicePos[idxI][1] = deviceVel[idxI][1] * INTERVAL;
+
+    deviceVel[idxI][2] += totalAccel[2] * INTERVAL;
+    devicePos[idxI][2] = deviceVel[idxI][2] * INTERVAL;
   }
 }
 
-__global__ void updateVelocityPosition(vector3 *d_hVel, vector3 *d_hPos,
-                                       vector3 *d_accels) {
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
+// Function to execute the parallel compute operations
+void compute() {
 
-  if (i < NUMELEMENTS) {
-    vector3 totalAccel = {0, 0, 0};
-    for (int j = 0; j < NUMELEMENTS; j++) {
-      vector_add_scaled(totalAccel, d_accels[i * NUMELEMENTS + j], 1.0,
-                        totalAccel);
-    }
+  vector3 *deviceVelocities, *devicePositions;
+  double *deviceMasses;
 
-    vector3 newVel;
-    vector_add_scaled(d_hVel[i], totalAccel, INTERVAL, newVel);
-    vector3 newPos;
-    vector_add_scaled(d_hPos[i], newVel, INTERVAL, newPos);
+  // Memory allocations on the GPU
+  cudaMallocManaged(&deviceVelocities, sizeof(vector3) * NUMENTITIES);
+  cudaMallocManaged(&devicePositions, sizeof(vector3) * NUMENTITIES);
+  cudaMallocManaged(&deviceMasses, sizeof(double) * NUMENTITIES);
 
-    d_hVel[i][0] = newVel[0];
-    d_hVel[i][1] = newVel[1];
-    d_hVel[i][2] = newVel[2];
-    d_hPos[i][0] = newPos[0];
-    d_hPos[i][1] = newPos[1];
-    d_hPos[i][2] = newPos[2];
-  }
-}
+  // Copy data from host to device
+  cudaMemcpy(deviceVelocities, hVel, sizeof(vector3) * NUMENTITIES,
+             cudaMemcpyHostToDevice);
+  cudaMemcpy(devicePositions, hPos, sizeof(vector3) * NUMENTITIES,
+             cudaMemcpyHostToDevice);
+  cudaMemcpy(deviceMasses, mass, sizeof(double) * NUMENTITIES,
+             cudaMemcpyHostToDevice);
 
-void compute(vector3 *d_hPos, vector3 *d_hVel, double *d_mass) {
-  vector3 *d_accels;
-  cudaMalloc((void **)&d_accels, sizeof(vector3) * NUMELEMENTS * NUMELEMENTS);
+  // Allocate space for intermediate calculations
+  cudaMallocManaged(&intermediateValues,
+                    sizeof(vector3) * NUMENTITIES * NUMENTITIES);
+  cudaMallocManaged(&accelerationComponents, sizeof(vector3 *) * NUMENTITIES);
 
-  dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
-  dim3 dimGrid((NUMELEMENTS + dimBlock.x - 1) / dimBlock.x,
-               (NUMELEMENTS + dimBlock.y - 1) / dimBlock.y);
+  // Configuration for parallel execution
+  int blockSize = 256;
+  int numBlocks = (NUMENTITIES + blockSize - 1) / blockSize;
 
-  computeAccelerationMatrix<<<dimGrid, dimBlock>>>(d_hPos, d_mass, d_accels);
+  // Launching the CUDA kernel
+  computeKernel<<<numBlocks, blockSize>>>(
+      intermediateValues, accelerationComponents, deviceVelocities,
+      devicePositions, deviceMasses);
   cudaDeviceSynchronize();
 
-  updateVelocityPosition<<<(NUMELEMENTS + 255) / 256, 256>>>(d_hVel, d_hPos,
-                                                             d_accels);
+  // Copy results back to host memory
+  cudaMemcpy(hVel, deviceVelocities, sizeof(vector3) * NUMENTITIES,
+             cudaMemcpyDefault);
+  cudaMemcpy(hPos, devicePositions, sizeof(vector3) * NUMENTITIES,
+             cudaMemcpyDefault);
+  cudaMemcpy(mass, deviceMasses, sizeof(double) * NUMENTITIES,
+             cudaMemcpyDefault);
 
-  cudaDeviceSynchronize();
-
-  cudaFree(d_accels);
+  // Freeing allocated memory on GPU
+  cudaFree(accelerationComponents);
+  cudaFree(intermediateValues);
 }
