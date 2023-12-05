@@ -3,7 +3,7 @@
 #include <cuda_runtime.h>
 #include <math.h>
 
-#define NUMELEMENTS NUMENTITIES
+#define NUMELEMENTS 1024
 #define BLOCK_SIZE 16
 
 // Function to compute dot product
