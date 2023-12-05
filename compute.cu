@@ -20,51 +20,53 @@ __global__ void computeKernel(vector3 *interValues, vector3 **accelComps,
   int idxJ =
       threadIndex % NUMENTITIES; // Calculate j index based on current thread
 
-  accelComps[threadIndex] = &interValues[threadIndex * NUMENTITIES];
-
   if (threadIndex <
       NUMENTITIES * NUMENTITIES) { // Check if thread is within bounds
     if (idxI == idxJ) {
-      FILL_VECTOR(accelComps[idxI][idxJ], 0, 0, 0);
+      FILL_VECTOR(interValues[threadIndex], 0, 0, 0);
     } else {
-      vector3 distVec;
+      vector3 distance;
 
       // Calculate distance between two entities
-      distVec[0] = devicePos[idxI][0] - devicePos[idxJ][0];
-      distVec[1] = devicePos[idxI][1] - devicePos[idxJ][1];
-      distVec[2] = devicePos[idxI][2] - devicePos[idxJ][2];
-      double magSq = distVec[0] * distVec[0] + distVec[1] * distVec[1] +
-                     distVec[2] * distVec[2];
-      double magnitude = sqrt(magSq);
-      double accelMagnitude = -GRAV_CONSTANT * deviceMass[idxJ] / magSq;
+      distance[0] = devicePos[idxI][0] - devicePos[idxJ][0];
+      distance[1] = devicePos[idxI][1] - devicePos[idxJ][1];
+      distance[2] = devicePos[idxI][2] - devicePos[idxJ][2];
+      double magnitude_sq = distance[0] * distance[0] +
+                            distance[1] * distance[1] +
+                            distance[2] * distance[2];
+      double magnitude = sqrt(magnitude_sq);
+      double accelmag = -GRAV_CONSTANT * deviceMass[idxJ] / magnitude_sq;
 
       // Calculate acceleration vector
-      FILL_VECTOR(accelComps[idxI][idxJ],
-                  accelMagnitude * distVec[0] / magnitude,
-                  accelMagnitude * distVec[1] / magnitude,
-                  accelMagnitude * distVec[2] / magnitude);
+      interValues[threadIndex][0] = accelmag * distance[0] / magnitude;
+      interValues[threadIndex][1] = accelmag * distance[1] / magnitude;
+      interValues[threadIndex][2] = accelmag * distance[2] / magnitude;
     }
+  }
 
-    // Sum accelerations for the current entity
-    vector3 totalAccel = {accelComps[threadIndex][0],
-                          accelComps[threadIndex][1],
-                          accelComps[threadIndex][2]};
+  // Sum accelerations for the current entity
+  if (idxI < NUMENTITIES) {
+    vector3 totalAccel = {0, 0, 0};
+    for (int j = 0; j < NUMENTITIES; j++) {
+      totalAccel[0] += interValues[idxI * NUMENTITIES + j][0];
+      totalAccel[1] += interValues[idxI * NUMENTITIES + j][1];
+      totalAccel[2] += interValues[idxI * NUMENTITIES + j][2];
+    }
 
     // Update velocity and position based on total acceleration
     deviceVel[idxI][0] += totalAccel[0] * INTERVAL;
-    devicePos[idxI][0] = deviceVel[idxI][0] * INTERVAL;
+    devicePos[idxI][0] += deviceVel[idxI][0] * INTERVAL;
 
     deviceVel[idxI][1] += totalAccel[1] * INTERVAL;
-    devicePos[idxI][1] = deviceVel[idxI][1] * INTERVAL;
+    devicePos[idxI][1] += deviceVel[idxI][1] * INTERVAL;
 
     deviceVel[idxI][2] += totalAccel[2] * INTERVAL;
-    devicePos[idxI][2] = deviceVel[idxI][2] * INTERVAL;
+    devicePos[idxI][2] += deviceVel[idxI][2] * INTERVAL;
   }
 }
 
 // Function to execute the parallel compute operations
 void compute() {
-
   vector3 *deviceVelocities, *devicePositions;
   double *deviceMasses;
 
@@ -84,11 +86,10 @@ void compute() {
   // Allocate space for intermediate calculations
   cudaMallocManaged(&intermediateValues,
                     sizeof(vector3) * NUMENTITIES * NUMENTITIES);
-  cudaMallocManaged(&accelerationComponents, sizeof(vector3 *) * NUMENTITIES);
 
   // Configuration for parallel execution
   int blockSize = 256;
-  int numBlocks = (NUMENTITIES + blockSize - 1) / blockSize;
+  int numBlocks = (NUMENTITIES * NUMENTITIES + blockSize - 1) / blockSize;
 
   // Launching the CUDA kernel
   computeKernel<<<numBlocks, blockSize>>>(
@@ -98,13 +99,12 @@ void compute() {
 
   // Copy results back to host memory
   cudaMemcpy(hVel, deviceVelocities, sizeof(vector3) * NUMENTITIES,
-             cudaMemcpyDefault);
+             cudaMemcpyDeviceToHost);
   cudaMemcpy(hPos, devicePositions, sizeof(vector3) * NUMENTITIES,
-             cudaMemcpyDefault);
+             cudaMemcpyDeviceToHost);
   cudaMemcpy(mass, deviceMasses, sizeof(double) * NUMENTITIES,
-             cudaMemcpyDefault);
+             cudaMemcpyDeviceToHost);
 
   // Freeing allocated memory on GPU
-  cudaFree(accelerationComponents);
   cudaFree(intermediateValues);
 }
