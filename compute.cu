@@ -11,42 +11,28 @@ __global__ void computeAccelerationMatrix(vector3 *accels, vector3 *d_hPos,
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   int j = blockIdx.y * blockDim.y + threadIdx.y;
 
-  __shared__ vector3 sharedPos[BLOCK_SIZE][BLOCK_SIZE];
-  __shared__ double sharedMass[BLOCK_SIZE];
-
-  if (threadIdx.y == 0 && threadIdx.x < BLOCK_SIZE && j < NUMELEMENTS) {
-    sharedMass[threadIdx.x] = d_mass[j];
-  }
-
-  if (i < NUMELEMENTS && j < NUMELEMENTS && threadIdx.x < BLOCK_SIZE &&
-      threadIdx.y < BLOCK_SIZE) {
-    for (int k = 0; k < 3; k++) {
-      sharedPos[threadIdx.y][threadIdx.x][k] = d_hPos[j][k];
-    }
-  }
-  __syncthreads();
-
-  if (i < NUMELEMENTS && j < NUMELEMENTS && i != j) {
+  if (i < NUMELEMENTS && j < NUMELEMENTS) {
     vector3 distance;
     double magnitude_sq, magnitude, accelmag;
-    if (i < j) { // Calculate only for i < j
+
+    if (i != j) {
       for (int k = 0; k < 3; k++) {
-        distance[k] = sharedPos[threadIdx.y][threadIdx.x][k] - d_hPos[i][k];
+        distance[k] = d_hPos[j][k] - d_hPos[i][k];
       }
       magnitude_sq = distance[0] * distance[0] + distance[1] * distance[1] +
                      distance[2] * distance[2];
       magnitude = sqrt(magnitude_sq);
-      accelmag = GRAV_CONSTANT * sharedMass[threadIdx.x] / magnitude_sq;
+      accelmag = GRAV_CONSTANT * d_mass[j] / magnitude_sq;
 
       for (int k = 0; k < 3; k++) {
         double accelComponent = accelmag * distance[k] / magnitude;
         accels[i * NUMELEMENTS + j][k] = accelComponent;
-        accels[j * NUMELEMENTS + i][k] = -accelComponent; // Symmetry
+        accels[j * NUMELEMENTS + i][k] = -accelComponent;
       }
-    }
-  } else if (i < NUMELEMENTS) {
-    for (int k = 0; k < 3; k++) {
-      accels[i * NUMELEMENTS + j][k] = 0;
+    } else {
+      for (int k = 0; k < 3; k++) {
+        accels[i * NUMELEMENTS + j][k] = 0;
+      }
     }
   }
 }
@@ -59,7 +45,6 @@ __global__ void updateVelocityPosition(vector3 *accels, vector3 *d_hPos,
     vector3 totalAccel = {0, 0, 0};
 
     for (int j = 0; j < NUMELEMENTS; j++) {
-#pragma unroll
       for (int k = 0; k < 3; k++) {
         totalAccel[k] += accels[i * NUMELEMENTS + j][k];
       }
