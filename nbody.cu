@@ -1,5 +1,5 @@
+#include "compute.h"
 #include "config.h"
-#include "parallel_compute.h"
 #include "planets.h"
 #include "vector.h"
 #include <math.h>
