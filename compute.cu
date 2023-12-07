@@ -21,13 +21,10 @@ void compute() {
   int sharedMemSize = 2 * threadCount * sizeof(double);
   sumColumns<<<blockDimension, threadCount, sharedMemSize>>>(d_accels,
                                                              d_accel_sum);
-      d_accels, d_accel_sum);
-      int positionUpdateBlocks = (NUMENTITIES + 7) / 8;
-      dim3 velocityUpdateThreads(8, 3);
-      updatePositionAndVelocity<<<positionUpdateBlocks,
-                                  velocityUpdateThreads>>>(d_accel_sum, d_hPos,
-                                                           d_hVel);
-          d_accel_sum, d_hPos, d_hVel);
+  int positionUpdateBlocks = (NUMENTITIES + 7) / 8;
+  dim3 velocityUpdateThreads(8, 3);
+  updatePositionAndVelocity<<<positionUpdateBlocks, velocityUpdateThreads>>>(
+      d_accel_sum, d_hPos, d_hVel);
 }
 
 __global__ void calculateAccels(vector3 **accels, vector3 *positions,
