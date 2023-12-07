@@ -62,19 +62,16 @@ __global__ void computeAccelerationKernel(vector3 *accelerationVectors,
 
 // Main function to setup and execute the kernel
 void compute() {
-  // Allocate host memory for acceleration vectors
-  vector3 *accelerationMatrix =
+  // Allocate host memory for acceleration vectors as a single linear array
+  vector3 *accelerationVectors =
       (vector3 *)malloc(sizeof(vector3) * NUMENTITIES * NUMENTITIES);
-  vector3 **accelerationVectors =
-      (vector3 **)malloc(sizeof(vector3 *) * NUMENTITIES);
-  for (int i = 0; i < NUMENTITIES; i++)
-    accelerationVectors[i] = &accelerationMatrix[i * NUMENTITIES];
 
   // Allocate device memory
-  vector3 *d_hPos;
+  vector3 *d_hPos, *d_hVel, *d_accelerationVectors;
   cudaMalloc((void **)&d_hPos, sizeof(vector3) * NUMENTITIES);
-  vector3 *d_hVel;
   cudaMalloc((void **)&d_hVel, sizeof(vector3) * NUMENTITIES);
+  cudaMalloc((void **)&d_accelerationVectors,
+             sizeof(vector3) * NUMENTITIES * NUMENTITIES);
   double *d_mass;
   cudaMalloc((void **)&d_mass, sizeof(double) * NUMENTITIES);
 
@@ -91,7 +88,7 @@ void compute() {
   int gridSize = (NUMENTITIES + blockSize - 1) / blockSize;
 
   // Execute the kernel
-  computeAccelerationKernel<<<gridSize, blockSize>>>(accelerationVectors,
+  computeAccelerationKernel<<<gridSize, blockSize>>>(d_accelerationVectors,
                                                      d_hPos, d_hVel, d_mass);
 
   // Copy results back to host
@@ -104,8 +101,8 @@ void compute() {
   cudaFree(d_hPos);
   cudaFree(d_hVel);
   cudaFree(d_mass);
+  cudaFree(d_accelerationVectors);
 
   // Free host memory
   free(accelerationVectors);
-  free(accelerationMatrix);
 }
