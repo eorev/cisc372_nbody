@@ -1,88 +1,110 @@
 #include "config.h"
-#include "cuda.h"
+#include "parallel_compute.h"
 #include "vector.h"
-#include <cuda_runtime.h>
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
-vector3 *values;
-vector3 **accels;
+extern vector3 *d_values, **d_accels, *d_hPos, *d_hVel, *d_accel_sum;
+extern double *d_mass;
 
-__global__ void parallelCompute(vector3 *values, vector3 **accels,
-                                vector3 *d_vel, vector3 *d_pos,
-                                double *d_mass) {
+// compute: Updates the positions and velocities of objects in the system based
+// on gravitational forces.
+void compute() {
+  int gridDimension = (NUMENTITIES + 7) / 8;
+  dim3 gridThreads(8, 8, 3);
+  dim3 gridBlocks(gridDimension, gridDimension);
+  calculateAccels<<<gridBlocks, gridThreads>>>(d_accels, d_hPos, d_mass);
+  int threadCount = 64;
+  dim3 blockDimension(NUMENTITIES, 3);
+  int sharedMemSize = 2 * threadCount * sizeof(double);
+  sumAccelerationComponents<<<blockDimension, threadCount, sharedMemSize>>>(
+      d_accels, d_accel_sum);
+  int positionUpdateBlocks = (NUMENTITIES + 7) / 8;
+  dim3 velocityUpdateThreads(8, 3);
+  updatePosAndVel<<<positionUpdateBlocks, velocityUpdateThreads>>>(
+      d_accel_sum, d_hPos, d_hVel);
+}
 
-  int currThreadId = blockIdx.x * blockDim.x + threadIdx.x;
-  int i = currThreadId / NUMENTITIES;
-  int j = currThreadId % NUMENTITIES;
-
-  accels[currThreadId] = &values[currThreadId * NUMENTITIES];
-
-  if (currThreadId < NUMENTITIES * NUMENTITIES) {
-    if (i == j) {
-      FILL_VECTOR(accels[i][j], 0, 0, 0);
-    } else {
-      vector3 distance;
-
-      distance[0] = d_pos[i][0] - d_pos[j][0];
-      distance[1] = d_pos[i][1] - d_pos[j][1];
-      distance[2] = d_pos[i][2] - d_pos[j][2];
-      double magnitude_sq = distance[0] * distance[0] +
-                            distance[1] * distance[1] +
-                            distance[2] * distance[2];
-      double magnitude = sqrt(magnitude_sq);
-      double accelmag = -1 * GRAV_CONSTANT * d_mass[j] / magnitude_sq;
-      FILL_VECTOR(accels[i][j], accelmag * distance[0] / magnitude,
-                  accelmag * distance[1] / magnitude,
-                  accelmag * distance[2] / magnitude);
-    }
-
-    vector3 accel_sum = {(double)*(accels[currThreadId])[0],
-                         (double)*(accels[currThreadId])[1],
-                         (double)*(accels[currThreadId])[2]};
-
-    d_vel[i][0] += accel_sum[0] * INTERVAL;
-    d_pos[i][0] = d_vel[i][0] * INTERVAL;
-
-    d_vel[i][1] += accel_sum[1] * INTERVAL;
-    d_pos[i][1] = d_vel[i][1] * INTERVAL;
-
-    d_vel[i][2] += accel_sum[2] * INTERVAL;
-    d_pos[i][2] = d_vel[i][2] * INTERVAL;
+__global__ void calculateAccels(vector3 **accels, vector3 *positions,
+                                double *masses) {
+  int entityX = threadIdx.x + blockIdx.x * blockDim.x;
+  int entityY = threadIdx.y + blockIdx.y * blockDim.y;
+  int dimensionZ = threadIdx.z;
+  __shared__ vector3 distComponents[8][8];
+  if (entityX >= NUMENTITIES || entityY >= NUMENTITIES)
+    return;
+  if (entityX == entityY) {
+    accels[entityX][entityY][dimensionZ] = 0;
+  } else {
+    distComponents[threadIdx.x][threadIdx.y][dimensionZ] =
+        positions[entityX][dimensionZ] - positions[entityY][dimensionZ];
+    __syncthreads();
+    double distSquared = distComponents[threadIdx.x][threadIdx.y][0] *
+                             distComponents[threadIdx.x][threadIdx.y][0] +
+                         distComponents[threadIdx.x][threadIdx.y][1] *
+                             distComponents[threadIdx.x][threadIdx.y][1] +
+                         distComponents[threadIdx.x][threadIdx.y][2] *
+                             distComponents[threadIdx.x][threadIdx.y][2];
+    double dist = sqrt(distSquared);
+    double accelMagnitude = -GRAV_CONSTANT * masses[entityY] / distSquared;
+    accels[entityX][entityY][dimensionZ] =
+        accelMagnitude * distComponents[threadIdx.x][threadIdx.y][dimensionZ] /
+        dist;
   }
 }
 
-void compute() {
+__global__ void sumAccelerationComponents(vector3 **accels,
+                                          vector3 *accelTotals) {
+  int rowIdx = threadIdx.x;
+  int colIdx = blockIdx.x;
+  int dimension = blockIdx.y;
+  __shared__ int offsetIndex;
+  int blockSize = blockDim.x;
+  int totalEntities = NUMENTITIES;
+  extern __shared__ double sharedArray[];
+  sharedArray[rowIdx] =
+      rowIdx < totalEntities ? accels[colIdx][rowIdx][dimension] : 0;
+  if (rowIdx == 0) {
+    offsetIndex = blockSize;
+  }
+  __syncthreads();
+  while (offsetIndex < totalEntities) {
+    sharedArray[rowIdx + blockSize] =
+        rowIdx + blockSize < totalEntities
+            ? accels[colIdx][rowIdx + offsetIndex][dimension]
+            : 0;
+    __syncthreads();
+    if (rowIdx == 0) {
+      offsetIndex += blockSize;
+    }
+    double sumVal = sharedArray[2 * rowIdx] + sharedArray[2 * rowIdx + 1];
+    __syncthreads();
+    sharedArray[rowIdx] = sumVal;
+  }
+  __syncthreads();
+  for (int stride = 1; stride < blockSize; stride *= 2) {
+    int arrayIndex = rowIdx * stride * 2;
+    if (arrayIndex + stride < blockSize) {
+      sharedArray[arrayIndex] += sharedArray[arrayIndex + stride];
+    }
+    __syncthreads();
+  }
+  if (rowIdx == 0) {
+    accelTotals[colIdx][dimension] = sharedArray[0];
+  }
+}
 
-  vector3 *d_vel, *d_pos;
-  double *d_mass;
+__global__ void updatePosAndVel(vector3 *totalAccel, vector3 *positions,
+                                vector3 *velocities) {
+  int entityIdx = threadIdx.x + blockIdx.x * blockDim.x;
+  int dimensionIdx = threadIdx.y;
+  if (entityIdx >= NUMENTITIES)
+    return;
 
-  cudaMallocManaged((void **)&d_vel, (sizeof(vector3) * NUMENTITIES));
-  cudaMallocManaged((void **)&d_pos, (sizeof(vector3) * NUMENTITIES));
-  cudaMallocManaged((void **)&d_mass, (sizeof(double) * NUMENTITIES));
-
-  cudaMemcpy(d_vel, hVel, sizeof(vector3) * NUMENTITIES,
-             cudaMemcpyHostToDevice);
-  cudaMemcpy(d_pos, hPos, sizeof(vector3) * NUMENTITIES,
-             cudaMemcpyHostToDevice);
-  cudaMemcpy(d_mass, mass, sizeof(double) * NUMENTITIES,
-             cudaMemcpyHostToDevice);
-
-  cudaMallocManaged((void **)&values,
-                    sizeof(vector3) * NUMENTITIES * NUMENTITIES);
-  cudaMallocManaged((void **)&accels, sizeof(vector3 *) * NUMENTITIES);
-
-  int blockSize = 256;
-  int numBlocks = (NUMENTITIES + blockSize - 1) / blockSize;
-
-  parallelCompute<<<numBlocks, blockSize>>>(values, accels, d_vel, d_pos,
-                                            d_mass);
-  cudaDeviceSynchronize();
-
-  cudaMemcpy(hVel, d_vel, sizeof(vector3) * NUMENTITIES, cudaMemcpyDefault);
-  cudaMemcpy(hPos, d_pos, sizeof(vector3) * NUMENTITIES, cudaMemcpyDefault);
-  cudaMemcpy(mass, d_mass, sizeof(double) * NUMENTITIES, cudaMemcpyDefault);
-
-  cudaFree(accels);
-  cudaFree(values);
+  velocities[entityIdx][dimensionIdx] +=
+      totalAccel[entityIdx][dimensionIdx] * INTERVAL;
+  positions[entityIdx][dimensionIdx] +=
+      velocities[entityIdx][dimensionIdx] * INTERVAL;
 }

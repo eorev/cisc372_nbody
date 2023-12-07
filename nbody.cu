@@ -52,9 +52,9 @@ void freeDeviceMemory() {
 }
 
 // planetFill: Fill the first NUMPLANETS+1 entries of the entity arrays with an
-// estimation 				of our solar system (Sun+NUMPLANETS) Parameters: None Returns:
-// None Fills the first 8 entries of our system with an estimation of the sun
-// plus our 8 planets.
+// estimation 				of our solar system (Sun+NUMPLANETS)
+// Parameters: None Returns: None Fills the first 8 entries of our system with
+// an estimation of the sun plus our 8 planets.
 void planetFill() {
   int i, j;
   double data[][7] = {SUN,     MERCURY, VENUS,  EARTH,  MARS,
@@ -70,8 +70,9 @@ void planetFill() {
 
 // randomFill: FIll the rest of the objects in the system randomly starting at
 // some entry in the list Parameters: 	start: The index of the first open entry
-// in our system (after planetFill). 				count: The number of random objects to put
-//into our system Returns: None Side Effects: Fills count entries in our system
+// in our system (after planetFill). 				count: The
+// number of random objects to put
+// into our system Returns: None Side Effects: Fills count entries in our system
 // starting at index start (0 based)
 void randomFill(int start, int count) {
   int i, j = start;
