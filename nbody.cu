@@ -104,31 +104,53 @@ int main(int argc, char **argv) {
   printSystem(stdout);
 #endif
 
+  // Allocate memory on the GPU for the 2D array of acceleration vectors
   cudaMalloc((void ***)&d_accels, (NUMENTITIES) * sizeof(vector3 *));
 
+  // Allocate memory for each row of the 2D acceleration vector array
   for (int i = 0; i < NUMENTITIES; i++) {
     cudaMalloc(&temp[i], sizeof(vector3) * NUMENTITIES);
   }
+
+  // Copy the pointers of each row (stored in temp) to the GPU memory (d_accels)
   cudaMemcpy(d_accels, temp, sizeof(vector3 *) * NUMENTITIES,
              cudaMemcpyHostToDevice);
+
+  // Allocate memory on the GPU for the positions (d_hPos) of each entity
   cudaMalloc((void **)&d_hPos, (NUMENTITIES) * sizeof(vector3));
+
+  // Allocate memory on the GPU for the velocities (d_hVel) of each entity
   cudaMalloc((void **)&d_hVel, (NUMENTITIES) * sizeof(vector3));
+
+  // Allocate memory on the GPU for the sum of accelerations (d_accel_sum) for
+  // each entity
   cudaMalloc((void **)&d_accel_sum, (NUMENTITIES) * sizeof(vector3));
+
+  // Allocate memory on the GPU for the mass (d_mass) of each entity
   cudaMalloc((void **)&d_mass, (NUMENTITIES) * sizeof(double));
 
+  // Copy the positions from host memory (hPos) to device memory (d_hPos)
   cudaMemcpy(d_hPos, hPos, (NUMENTITIES) * sizeof(vector3),
              cudaMemcpyHostToDevice);
+
+  // Copy the velocities from host memory (hVel) to device memory (d_hVel)
   cudaMemcpy(d_hVel, hVel, (NUMENTITIES) * sizeof(vector3),
              cudaMemcpyHostToDevice);
+
+  // Copy the masses from host memory (mass) to device memory (d_mass)
   cudaMemcpy(d_mass, mass, (NUMENTITIES) * sizeof(double),
              cudaMemcpyHostToDevice);
 
+  // Run the simulation for the specified duration
   for (t_now = 0; t_now < DURATION; t_now += INTERVAL) {
-    compute();
+    compute(); // Compute function performs the simulation step
   }
 
+  // Copy the updated positions back to host memory from device memory
   cudaMemcpy(hPos, d_hPos, (NUMENTITIES) * sizeof(vector3),
              cudaMemcpyDeviceToHost);
+
+  // Copy the updated velocities back to host memory from device memory
   cudaMemcpy(hVel, d_hVel, (NUMENTITIES) * sizeof(vector3),
              cudaMemcpyDeviceToHost);
 

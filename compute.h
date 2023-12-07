@@ -1,7 +1,7 @@
 #ifndef COMPUTE_H
 #define COMPUTE_H
 
-#include "vector.h" // Ensure this includes the definition of vector3
+#include "vector.h"
 
 // Declare any global variables used in compute.cu
 extern vector3 *d_values, **d_accels, *d_hPos, *d_hVel, *d_accel_sum;
@@ -9,12 +9,9 @@ extern double *d_mass;
 
 // Function declarations
 
-// compute: Updates the positions and velocities of objects based on
-// gravitational forces.
 void compute();
 
 // CUDA kernel functions
-
 // mapValuestoAccels: Maps values to acceleration vectors (if used in
 // compute.cu).
 __global__ void mapValuestoAccels(vector3 *values, vector3 **accels);
