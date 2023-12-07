@@ -1,108 +1,102 @@
 #include "config.h"
+#include "cuda.h"
 #include "vector.h"
+#include <cuda_runtime.h>
 #include <math.h>
 #include <stdlib.h>
 
-extern vector3 *hPos;
-extern vector3 *hVel;
-extern double *mass;
+// Values and Accels are Global Variables
+vector3 *values;
+vector3 **accels;
 
-// Kernel function to compute acceleration based on gravity
-__global__ void computeAccelerationKernel(vector3 *accelerationVectors,
-                                          vector3 *d_hPos, vector3 *d_hVel,
-                                          double *d_mass) {
-  int entityId =
-      blockIdx.x * blockDim.x + threadIdx.x; // Unique ID for each entity
-  int otherEntity, dimension;
+// The compute functions done parallel
+__global__ void parallelCompute(vector3 *values, vector3 **accels,
+                                vector3 *d_vel, vector3 *d_pos,
+                                double *d_mass) {
 
-  if (entityId < NUMENTITIES) {
-    // Calculate acceleration for each entity
-    for (otherEntity = 0; otherEntity < NUMENTITIES; otherEntity++) {
-      if (entityId == otherEntity) {
-        // No self-interaction, set acceleration to zero
-        FILL_VECTOR(accelerationVectors[entityId * NUMENTITIES + otherEntity],
-                    0, 0, 0);
-      } else {
-        vector3 distance;
-        // Calculate distance vector between two entities
-        for (dimension = 0; dimension < 3; dimension++)
-          distance[dimension] =
-              d_hPos[entityId][dimension] - d_hPos[otherEntity][dimension];
+  int currThreadId = blockIdx.x * blockDim.x + threadIdx.x;
+  int i = currThreadId /
+          NUMENTITIES; // define i in terms of what block/dimension/thread we
+                       // are currently using
+  int j = currThreadId %
+          NUMENTITIES; // define j in terms of what block/dimension/thread we
+                       // are currently using
 
-        double magnitude_sq = distance[0] * distance[0] +
-                              distance[1] * distance[1] +
-                              distance[2] * distance[2];
-        double magnitude = sqrt(magnitude_sq);
-        double accelerationMagnitude =
-            -1 * GRAV_CONSTANT * d_mass[otherEntity] / magnitude_sq;
-        // Compute gravitational acceleration
-        FILL_VECTOR(accelerationVectors[entityId * NUMENTITIES + otherEntity],
-                    accelerationMagnitude * distance[0] / magnitude,
-                    accelerationMagnitude * distance[1] / magnitude,
-                    accelerationMagnitude * distance[2] / magnitude);
-      }
+  accels[currThreadId] = &values[currThreadId * NUMENTITIES];
+
+  if (currThreadId <
+      NUMENTITIES * NUMENTITIES) { // Ensure that the result of our block is
+                                   // actually in bounds
+    if (i == j) {
+      FILL_VECTOR(accels[i][j], 0, 0, 0);
+    } else {
+      vector3 distance;
+
+      distance[0] = d_pos[i][0] - d_pos[j][0];
+      distance[1] = d_pos[i][1] - d_pos[j][1];
+      distance[2] = d_pos[i][2] - d_pos[j][2];
+      double magnitude_sq = distance[0] * distance[0] +
+                            distance[1] * distance[1] +
+                            distance[2] * distance[2];
+      double magnitude = sqrt(magnitude_sq);
+      double accelmag = -1 * GRAV_CONSTANT * d_mass[j] / magnitude_sq;
+      FILL_VECTOR(accels[i][j], accelmag * distance[0] / magnitude,
+                  accelmag * distance[1] / magnitude,
+                  accelmag * distance[2] / magnitude);
     }
 
-    vector3 totalAcceleration = {0, 0, 0};
-    // Sum all acceleration contributions
-    for (otherEntity = 0; otherEntity < NUMENTITIES; otherEntity++) {
-      for (dimension = 0; dimension < 3; dimension++)
-        totalAcceleration[dimension] +=
-            accelerationVectors[entityId * NUMENTITIES + otherEntity]
-                               [dimension];
-    }
+    vector3 accel_sum = {(double)*(accels[currThreadId])[0],
+                         (double)*(accels[currThreadId])[1],
+                         (double)*(accels[currThreadId])[2]};
 
-    // Update velocity and position based on the calculated acceleration
-    for (dimension = 0; dimension < 3; dimension++) {
-      d_hVel[entityId][dimension] += totalAcceleration[dimension] * INTERVAL;
-      d_hPos[entityId][dimension] = d_hVel[entityId][dimension] * INTERVAL;
-    }
+    d_vel[i][0] += accel_sum[0] * INTERVAL;
+    d_pos[i][0] = d_vel[i][0] * INTERVAL;
+
+    d_vel[i][1] += accel_sum[1] * INTERVAL;
+    d_pos[i][1] = d_vel[i][1] * INTERVAL;
+
+    d_vel[i][2] += accel_sum[2] * INTERVAL;
+    d_pos[i][2] = d_vel[i][2] * INTERVAL;
   }
 }
 
-// Main function to setup and execute the kernel
+// Run the three functions that implemenmt parallel design
 void compute() {
-  // Allocate host memory for acceleration vectors as a single linear array
-  vector3 *accelerationVectors =
-      (vector3 *)malloc(sizeof(vector3) * NUMENTITIES * NUMENTITIES);
 
-  // Allocate device memory
-  vector3 *d_hPos, *d_hVel, *d_accelerationVectors;
-  cudaMalloc((void **)&d_hPos, sizeof(vector3) * NUMENTITIES);
-  cudaMalloc((void **)&d_hVel, sizeof(vector3) * NUMENTITIES);
-  cudaMalloc((void **)&d_accelerationVectors,
-             sizeof(vector3) * NUMENTITIES * NUMENTITIES);
+  // d_hvel and d_hpos hold the hVel and hPos variables on the GPU
+  vector3 *d_vel, *d_pos;
   double *d_mass;
-  cudaMalloc((void **)&d_mass, sizeof(double) * NUMENTITIES);
 
-  // Copy data from host to device
-  cudaMemcpy(d_hPos, hPos, sizeof(vector3) * NUMENTITIES,
+  cudaMallocManaged((void **)&d_vel, (sizeof(vector3) * NUMENTITIES));
+  cudaMallocManaged((void **)&d_pos, (sizeof(vector3) * NUMENTITIES));
+  cudaMallocManaged((void **)&d_mass, (sizeof(double) * NUMENTITIES));
+
+  // Copy memory from the host onto the GPU
+  cudaMemcpy(d_vel, hVel, sizeof(vector3) * NUMENTITIES,
              cudaMemcpyHostToDevice);
-  cudaMemcpy(d_hVel, hVel, sizeof(vector3) * NUMENTITIES,
+  cudaMemcpy(d_pos, hPos, sizeof(vector3) * NUMENTITIES,
              cudaMemcpyHostToDevice);
   cudaMemcpy(d_mass, mass, sizeof(double) * NUMENTITIES,
              cudaMemcpyHostToDevice);
 
-  // Setup grid and block dimensions for the kernel
+  // Allocate space on the GPU for these variables
+  cudaMallocManaged((void **)&values,
+                    sizeof(vector3) * NUMENTITIES * NUMENTITIES);
+  cudaMallocManaged((void **)&accels, sizeof(vector3 *) * NUMENTITIES);
+
+  // Determine number of blocks that we should be running
   int blockSize = 256;
-  int gridSize = (NUMENTITIES + blockSize - 1) / blockSize;
+  int numBlocks = (NUMENTITIES + blockSize - 1) / blockSize;
 
-  // Execute the kernel
-  computeAccelerationKernel<<<gridSize, blockSize>>>(d_accelerationVectors,
-                                                     d_hPos, d_hVel, d_mass);
+  parallelCompute<<<numBlocks, blockSize>>>(values, accels, d_vel, d_pos,
+                                            d_mass);
+  cudaDeviceSynchronize();
 
-  // Copy results back to host
-  cudaMemcpy(hPos, d_hPos, sizeof(vector3) * NUMENTITIES,
-             cudaMemcpyDeviceToHost);
-  cudaMemcpy(hVel, d_hVel, sizeof(vector3) * NUMENTITIES,
-             cudaMemcpyDeviceToHost);
+  // Copy the results back to the device
+  cudaMemcpy(hVel, d_vel, sizeof(vector3) * NUMENTITIES, cudaMemcpyDefault);
+  cudaMemcpy(hPos, d_pos, sizeof(vector3) * NUMENTITIES, cudaMemcpyDefault);
+  cudaMemcpy(mass, d_mass, sizeof(double) * NUMENTITIES, cudaMemcpyDefault);
 
-  // Free device memory
-  cudaFree(d_hPos);
-  cudaFree(d_hVel);
-  cudaFree(d_mass);
-  cudaFree(d_accelerationVectors);
-
-  // Free host memory
-  free(accelerationVectors);
+  cudaFree(accels);
+  cudaFree(values);
 }
