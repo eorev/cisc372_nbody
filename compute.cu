@@ -55,8 +55,7 @@ __global__ void calculateAccels(vector3 **accels, vector3 *positions,
   }
 }
 
-__global__ void sumAccelerationComponents(vector3 **accels,
-                                          vector3 *accelTotals) {
+__global__ void sumColumns(vector3 **accels, vector3 *accelTotals) {
   int rowIdx = threadIdx.x;
   int colIdx = blockIdx.x;
   int dimension = blockIdx.y;
@@ -96,8 +95,9 @@ __global__ void sumAccelerationComponents(vector3 **accels,
   }
 }
 
-__global__ void updatePosAndVel(vector3 *totalAccel, vector3 *positions,
-                                vector3 *velocities) {
+__global__ void updatePositionAndVelocity(vector3 *totalAccel,
+                                          vector3 *positions,
+                                          vector3 *velocities) {
   int entityIdx = threadIdx.x + blockIdx.x * blockDim.x;
   int dimensionIdx = threadIdx.y;
   if (entityIdx >= NUMENTITIES)
