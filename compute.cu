@@ -3,14 +3,14 @@
 #include <math.h>
 #include <stdlib.h>
 
-extern vector3 *positions;
-extern vector3 *velocities;
-extern double *masses;
+extern vector3 *hPos;
+extern vector3 *hVel;
+extern double *mass;
 
 // Kernel function to compute acceleration based on gravity
 __global__ void computeAccelerationKernel(vector3 *accelerationVectors,
-                                          vector3 *positions,
-                                          vector3 *velocities, double *masses) {
+                                          vector3 *d_hPos, vector3 *d_hVel,
+                                          double *d_mass) {
   int entityId =
       blockIdx.x * blockDim.x + threadIdx.x; // Unique ID for each entity
   int otherEntity, dimension;
@@ -26,15 +26,15 @@ __global__ void computeAccelerationKernel(vector3 *accelerationVectors,
         vector3 distance;
         // Calculate distance vector between two entities
         for (dimension = 0; dimension < 3; dimension++)
-          distance[dimension] = positions[entityId][dimension] -
-                                positions[otherEntity][dimension];
+          distance[dimension] =
+              d_hPos[entityId][dimension] - d_hPos[otherEntity][dimension];
 
         double magnitude_sq = distance[0] * distance[0] +
                               distance[1] * distance[1] +
                               distance[2] * distance[2];
         double magnitude = sqrt(magnitude_sq);
         double accelerationMagnitude =
-            -1 * GRAV_CONSTANT * masses[otherEntity] / magnitude_sq;
+            -1 * GRAV_CONSTANT * d_mass[otherEntity] / magnitude_sq;
         // Compute gravitational acceleration
         FILL_VECTOR(accelerationVectors[entityId * NUMENTITIES + otherEntity],
                     accelerationMagnitude * distance[0] / magnitude,
@@ -54,10 +54,8 @@ __global__ void computeAccelerationKernel(vector3 *accelerationVectors,
 
     // Update velocity and position based on the calculated acceleration
     for (dimension = 0; dimension < 3; dimension++) {
-      velocities[entityId][dimension] +=
-          totalAcceleration[dimension] * INTERVAL;
-      positions[entityId][dimension] =
-          velocities[entityId][dimension] * INTERVAL;
+      d_hVel[entityId][dimension] += totalAcceleration[dimension] * INTERVAL;
+      d_hPos[entityId][dimension] = d_hVel[entityId][dimension] * INTERVAL;
     }
   }
 }
@@ -73,22 +71,19 @@ void compute() {
     accelerationVectors[i] = &accelerationMatrix[i * NUMENTITIES];
 
   // Allocate device memory
-  vector3 *d_accelerationVectors;
-  cudaMalloc((void **)&d_accelerationVectors,
-             sizeof(vector3) * NUMENTITIES * NUMENTITIES);
-  vector3 *d_positions;
-  cudaMalloc((void **)&d_positions, sizeof(vector3) * NUMENTITIES);
-  vector3 *d_velocities;
-  cudaMalloc((void **)&d_velocities, sizeof(vector3) * NUMENTITIES);
-  double *d_masses;
-  cudaMalloc((void **)&d_masses, sizeof(double) * NUMENTITIES);
+  vector3 *d_hPos;
+  cudaMalloc((void **)&d_hPos, sizeof(vector3) * NUMENTITIES);
+  vector3 *d_hVel;
+  cudaMalloc((void **)&d_hVel, sizeof(vector3) * NUMENTITIES);
+  double *d_mass;
+  cudaMalloc((void **)&d_mass, sizeof(double) * NUMENTITIES);
 
   // Copy data from host to device
-  cudaMemcpy(d_positions, positions, sizeof(vector3) * NUMENTITIES,
+  cudaMemcpy(d_hPos, hPos, sizeof(vector3) * NUMENTITIES,
              cudaMemcpyHostToDevice);
-  cudaMemcpy(d_velocities, velocities, sizeof(vector3) * NUMENTITIES,
+  cudaMemcpy(d_hVel, hVel, sizeof(vector3) * NUMENTITIES,
              cudaMemcpyHostToDevice);
-  cudaMemcpy(d_masses, masses, sizeof(double) * NUMENTITIES,
+  cudaMemcpy(d_mass, mass, sizeof(double) * NUMENTITIES,
              cudaMemcpyHostToDevice);
 
   // Setup grid and block dimensions for the kernel
@@ -96,20 +91,19 @@ void compute() {
   int gridSize = (NUMENTITIES + blockSize - 1) / blockSize;
 
   // Execute the kernel
-  computeAccelerationKernel<<<gridSize, blockSize>>>(
-      d_accelerationVectors, d_positions, d_velocities, d_masses);
+  computeAccelerationKernel<<<gridSize, blockSize>>>(accelerationVectors,
+                                                     d_hPos, d_hVel, d_mass);
 
   // Copy results back to host
-  cudaMemcpy(positions, d_positions, sizeof(vector3) * NUMENTITIES,
+  cudaMemcpy(hPos, d_hPos, sizeof(vector3) * NUMENTITIES,
              cudaMemcpyDeviceToHost);
-  cudaMemcpy(velocities, d_velocities, sizeof(vector3) * NUMENTITIES,
+  cudaMemcpy(hVel, d_hVel, sizeof(vector3) * NUMENTITIES,
              cudaMemcpyDeviceToHost);
 
   // Free device memory
-  cudaFree(d_accelerationVectors);
-  cudaFree(d_positions);
-  cudaFree(d_velocities);
-  cudaFree(d_masses);
+  cudaFree(d_hPos);
+  cudaFree(d_hVel);
+  cudaFree(d_mass);
 
   // Free host memory
   free(accelerationVectors);
