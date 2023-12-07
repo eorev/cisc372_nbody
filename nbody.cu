@@ -15,31 +15,18 @@ vector3 *d_values, **d_accels, *d_hPos, *d_hVel, *d_accel_sum;
 double *d_mass;
 vector3 *temp[NUMENTITIES];
 
-// initHostMemory: Create storage for numObjects entities in our system
-// Parameters: numObjects: number of objects to allocate
-// Returns: None
-// Side Effects: Allocates memory in the hVel, hPos, and mass global variables
 void initHostMemory(int numObjects) {
   hVel = (vector3 *)malloc(sizeof(vector3) * numObjects);
   hPos = (vector3 *)malloc(sizeof(vector3) * numObjects);
   mass = (double *)malloc(sizeof(double) * numObjects);
 }
 
-// freeHostMemory: Free storage allocated by a previous call to initHostMemory
-// Parameters: None
-// Returns: None
-// Side Effects: Frees the memory allocated to global variables hVel, hPos, and
-// mass.
 void freeHostMemory() {
   free(hVel);
   free(hPos);
   free(mass);
 }
 
-// freeDeviceMemory: Free storage allocated by a previous call to
-// initDeviceMemory Parameters: None Returns: None Side Effects: Frees the
-// memory allocated to global variables d_values, d_accels, d_hPos, d_hVel,
-// d_accel_sum, and d_mass.
 void freeDeviceMemory() {
   for (int i = 0; i < NUMENTITIES; i++) {
     cudaFree(temp[i]);
