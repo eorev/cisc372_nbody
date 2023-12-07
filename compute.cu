@@ -3,6 +3,10 @@
 #include <math.h>
 #include <stdlib.h>
 
+extern vector3 *positions;
+extern vector3 *velocities;
+extern double *masses;
+
 // Kernel function to compute acceleration based on gravity
 __global__ void computeAccelerationKernel(vector3 *accelerationVectors,
                                           vector3 *positions,
